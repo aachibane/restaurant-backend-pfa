@@ -3,6 +3,17 @@ target/
 !.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
+.env
+!.env.example
+application-local.properties
+
+# Temp & Upload folders
+tmp/
+uploads/
+
+# Keep the folder structure but ignore contents
+tmp/.gitkeep
+uploads/.gitkeep
 
 ### STS ###
 .apt_generated
