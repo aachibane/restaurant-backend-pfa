@@ -16,8 +16,8 @@ jobs:
       mysql:
         image: mysql:8.0
         env:
-          MYSQL_ROOT_PASSWORD: root
-          MYSQL_DATABASE: pfa_test
+          MYSQL_ROOT_PASSWORD: rootpass
+          MYSQL_DATABASE: pfa
         ports:
           - 3306:3306
         options: >-
@@ -43,20 +43,34 @@ jobs:
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2
 
+      - name: Wait for MySQL
+        run: |
+          for i in $(seq 1 15); do
+            if mysqladmin ping -h 127.0.0.1 -u root -prootpass --silent; then
+              echo "MySQL is up!"
+              break
+            fi
+            echo "Waiting for MySQL... $i/15"
+            sleep 3
+          done
+
       - name: Build with Maven
         run: mvn clean compile --no-transfer-progress
         env:
-          SPRING_DATASOURCE_URL: jdbc:mysql://localhost:3306/pfa_test
+          SPRING_DATASOURCE_URL: jdbc:mysql://localhost:3306/pfa?useSSL=false&serverTimezone=UTC&useLegacyDatetimeCode=false&createDatabaseIfNotExist=true
           SPRING_DATASOURCE_USERNAME: root
-          SPRING_DATASOURCE_PASSWORD: root
+          SPRING_DATASOURCE_PASSWORD: rootpass
 
-      - name: Run Unit Tests
-        run: mvn test --no-transfer-progress -Dexclude="**/frontend/**"
+      - name: Run Unit Tests (exclude Selenium)
+        run: mvn test --no-transfer-progress -Dexclude="com/example/pfabackend/frontend/**"
         env:
-          SPRING_DATASOURCE_URL: jdbc:mysql://localhost:3306/pfa_test
+          SPRING_DATASOURCE_URL: jdbc:mysql://localhost:3306/pfa?useSSL=false&serverTimezone=UTC&useLegacyDatetimeCode=false&createDatabaseIfNotExist=true
           SPRING_DATASOURCE_USERNAME: root
-          SPRING_DATASOURCE_PASSWORD: root
-          JWT_SECRET: test-secret-key-for-ci-only-not-real
+          SPRING_DATASOURCE_PASSWORD: rootpass
+          JWT_SECRET: ci-test-secret-key-not-used-in-production-at-all
+          JWT_EXPIRATION_MS: 86400000
+          SPRING_SQL_INIT_MODE: always
+          SPRING_JPA_DEFER_DATASOURCE_INITIALIZATION: "true"
 
       - name: Upload test results
         if: always()
@@ -100,8 +114,8 @@ jobs:
       mysql:
         image: mysql:8.0
         env:
-          MYSQL_ROOT_PASSWORD: root
-          MYSQL_DATABASE: pfa_test
+          MYSQL_ROOT_PASSWORD: rootpass
+          MYSQL_DATABASE: pfa
         ports:
           - 3306:3306
         options: >-
@@ -153,20 +167,34 @@ jobs:
         working-directory: frontend
         run: npm install --legacy-peer-deps
 
-      - name: Start backend
-        run: mvn spring-boot:run --no-transfer-progress &
-        env:
-          SPRING_DATASOURCE_URL: jdbc:mysql://localhost:3306/pfa_test
-          SPRING_DATASOURCE_USERNAME: root
-          SPRING_DATASOURCE_PASSWORD: root
-          JWT_SECRET: test-secret-key-for-ci-only-not-real
+      - name: Wait for MySQL
+        run: |
+          for i in $(seq 1 15); do
+            if mysqladmin ping -h 127.0.0.1 -u root -prootpass --silent; then
+              echo "MySQL is up!"
+              break
+            fi
+            echo "Waiting for MySQL... $i/15"
+            sleep 3
+          done
 
-      - name: Start frontend
-        working-directory: frontend
-        run: npm start &
+      - name: Build JAR
+        run: mvn package -DskipTests --no-transfer-progress
         env:
-          BROWSER: none
-          CI: false
+          SPRING_DATASOURCE_URL: jdbc:mysql://localhost:3306/pfa?useSSL=false&serverTimezone=UTC&useLegacyDatetimeCode=false&createDatabaseIfNotExist=true
+          SPRING_DATASOURCE_USERNAME: root
+          SPRING_DATASOURCE_PASSWORD: rootpass
+
+      - name: Start backend
+        run: java -jar target/*.jar &
+        env:
+          SPRING_DATASOURCE_URL: jdbc:mysql://localhost:3306/pfa?useSSL=false&serverTimezone=UTC&useLegacyDatetimeCode=false&createDatabaseIfNotExist=true
+          SPRING_DATASOURCE_USERNAME: root
+          SPRING_DATASOURCE_PASSWORD: rootpass
+          JWT_SECRET: ci-test-secret-key-not-used-in-production-at-all
+          JWT_EXPIRATION_MS: 86400000
+          SPRING_SQL_INIT_MODE: always
+          SPRING_JPA_DEFER_DATASOURCE_INITIALIZATION: "true"
 
       - name: Wait for backend to be ready
         run: |
@@ -179,6 +207,24 @@ jobs:
             echo "Attempt $i/30 - waiting 5s..."
             sleep 5
           done
+
+      - name: Seed database roles
+        run: |
+          echo "Seeding roles table..."
+          mysql -h 127.0.0.1 -u root -prootpass pfa <<EOF
+          INSERT IGNORE INTO \`roles\` (\`id\`, \`name\`) VALUES
+            (1, 'ROLE_USER'),
+            (2, 'ROLE_MODERATOR'),
+            (3, 'ROLE_ADMIN');
+          EOF
+          echo "Roles seeded successfully."
+
+      - name: Start frontend
+        working-directory: frontend
+        run: npm start &
+        env:
+          BROWSER: none
+          CI: false
 
       - name: Wait for frontend to be ready
         run: |
@@ -193,12 +239,15 @@ jobs:
           done
 
       - name: Run Selenium E2E Tests
-        run: mvn test --no-transfer-progress -Dtest="LoginTest,RegisterTest,AddRestaurantTest"
+        run: mvn test --no-transfer-progress -Dtest="com.example.pfabackend.frontend.**"
         env:
-          SPRING_DATASOURCE_URL: jdbc:mysql://localhost:3306/pfa_test
+          SPRING_DATASOURCE_URL: jdbc:mysql://localhost:3306/pfa?useSSL=false&serverTimezone=UTC&useLegacyDatetimeCode=false&createDatabaseIfNotExist=true
           SPRING_DATASOURCE_USERNAME: root
-          SPRING_DATASOURCE_PASSWORD: root
-          JWT_SECRET: test-secret-key-for-ci-only-not-real
+          SPRING_DATASOURCE_PASSWORD: rootpass
+          JWT_SECRET: ci-test-secret-key-not-used-in-production-at-all
+          JWT_EXPIRATION_MS: 86400000
+          SPRING_SQL_INIT_MODE: always
+          SPRING_JPA_DEFER_DATASOURCE_INITIALIZATION: "true"
 
       - name: Upload Selenium results
         if: always()
